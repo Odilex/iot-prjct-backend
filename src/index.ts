@@ -17,6 +17,15 @@ import { getLocalIPs } from './utils/network';
 import adminRoutes from './routes/admin';
 import parentRoutes from './routes/parent';
 import staffRoutes from './routes/staff';
+import authRoutes from './routes/auth';
+import studentRoutes from './routes/students';
+import parentsRoutesNew from './routes/parents';
+import teacherRoutes from './routes/teachers';
+import markRoutes from './routes/marks';
+import attendanceRoutes from './routes/attendance';
+import feeRoutes from './routes/fees';
+import announcementRoutes from './routes/announcements';
+import statsRoutes from './routes/stats';
 
 // ============================================
 // SERVER CONFIGURATION
@@ -35,8 +44,10 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', process.env.CORS_ORIGIN].filter(Boolean) as string[],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
 }));
 
 // Rate limiting - relaxed for exhibition/dev
@@ -78,9 +89,21 @@ app.get('/health', (_req: Request, res: Response) => {
 // API ROUTES
 // ============================================
 
+// Original routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/parent', parentRoutes);
 app.use('/api/staff', staffRoutes);
+
+// New Dashboard routes
+app.use('/api/auth', authRoutes);
+app.use('/api/students', studentRoutes);
+app.use('/api/parents', parentsRoutesNew);
+app.use('/api/teachers', teacherRoutes);
+app.use('/api/marks', markRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/fees', feeRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/stats', statsRoutes);
 
 // Base API info
 app.get('/api', (req, res) => {
@@ -88,12 +111,24 @@ app.get('/api', (req, res) => {
     message: 'Smart Campus Hub API is active',
     version: '1.0.0',
     endpoints: {
-      admin: '/api/admin',
-      parent: '/api/parent',
-      staff: '/api/staff'
+      auth: '/api/auth',
+      students: '/api/students',
+      parents: '/api/parents',
+      teachers: '/api/teachers',
+      marks: '/api/marks',
+      attendance: '/api/attendance',
+      fees: '/api/fees',
+      announcements: '/api/announcements',
+      stats: '/api/stats',
+      legacy: {
+        admin: '/api/admin',
+        parent: '/api/parent',
+        staff: '/api/staff'
+      }
     }
   });
 });
+
 
 // ============================================
 // ERROR HANDLING MIDDLEWARE

@@ -1,0 +1,170 @@
+import { Router, Response } from 'express';
+import { z } from 'zod';
+import prisma from '../config/database';
+import { authenticateJWT, AuthenticatedRequest } from '../middleware/auth';
+import { validateBody, validateParams } from '../middleware/validation';
+
+const router = Router();
+router.use(authenticateJWT);
+
+const studentSchema = z.object({
+    name: z.string().min(1),
+    class: z.string().min(1),
+    stream: z.string().optional(),
+    parentId: z.string().uuid().optional(),
+    phone: z.string().optional(),
+    email: z.string().email().optional(),
+    dob: z.string().optional(),
+    gender: z.string().optional(),
+    address: z.string().optional(),
+    status: z.string().optional().default('active'),
+    admissionNumber: z.string().min(1).optional(), // Not in requested body but needed for existing schema
+});
+
+/**
+ * GET /api/students
+ */
+router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+        const students = await prisma.student.findMany({
+            orderBy: { createdAt: 'desc' },
+        });
+
+        // Map to frontend expectation
+        const formatted = students.map(s => ({
+            ...s,
+            name: s.full_name,
+            class: s.grade_level,
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('[Students] Fetch error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/students/:id
+ */
+router.get('/:id', validateParams(z.object({ id: z.string().uuid() })), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const student = await prisma.student.findUnique({
+            where: { id: req.params.id },
+            include: {
+                parentStudentMaps: {
+                    include: { parent: true }
+                }
+            }
+        });
+
+        if (!student) {
+            res.status(404).json({ error: 'Student not found' });
+            return;
+        }
+
+        res.json({
+            ...student,
+            name: student.full_name,
+            class: student.grade_level,
+        });
+    } catch (error) {
+        console.error('[Students] Fetch by id error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /api/students
+ */
+router.post('/', validateBody(studentSchema), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const data = req.body;
+
+        // Admission number is required in schema, if not provided we generate one
+        const admissionNumber = data.admissionNumber || `ADM-${Date.now()}`;
+
+        const student = await prisma.student.create({
+            data: {
+                admissionNumber,
+                full_name: data.name,
+                grade_level: data.class,
+                stream: data.stream,
+                phone: data.phone,
+                email: data.email,
+                dob: data.dob,
+                gender: data.gender,
+                address: data.address,
+                status: data.status,
+            },
+        });
+
+        if (data.parentId) {
+            await prisma.parentStudentMap.create({
+                data: {
+                    studentId: student.id,
+                    parentId: data.parentId,
+                    relationship: 'Parent'
+                }
+            });
+        }
+
+        res.status(201).json({
+            ...student,
+            name: student.full_name,
+            class: student.grade_level,
+        });
+    } catch (error) {
+        console.error('[Students] Create error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * PUT /api/students/:id
+ */
+router.put('/:id', validateParams(z.object({ id: z.string().uuid() })), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const data = req.body;
+        const student = await prisma.student.update({
+            where: { id: req.params.id },
+            data: {
+                full_name: data.name,
+                grade_level: data.class,
+                stream: data.stream,
+                phone: data.phone,
+                email: data.email,
+                dob: data.dob,
+                gender: data.gender,
+                address: data.address,
+                status: data.status,
+            },
+        });
+
+        res.json({
+            ...student,
+            name: student.full_name,
+            class: student.grade_level,
+        });
+    } catch (error) {
+        console.error('[Students] Update error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * DELETE /api/students/:id
+ */
+router.delete('/:id', validateParams(z.object({ id: z.string().uuid() })), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        await prisma.student.delete({
+            where: { id: req.params.id },
+        });
+        res.json({ message: 'Student deleted successfully' });
+    } catch (error) {
+        console.error('[Students] Delete error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+export default router;
