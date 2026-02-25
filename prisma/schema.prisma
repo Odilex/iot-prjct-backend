@@ -669,9 +669,10 @@ enum one_time_token_type {
 
 
 model Cards {
-  @@schema("auth")
-  id Int @id @default(dbgenerated("uuid_generate_v4()")) 
-  studentId String @map("student_id") @db.Uuid @unique
-  student Student @relation(fields: studentId, references: id, onDelete: Cascade)
-  
+  id        String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  studentId String  @map("student_id") @db.Uuid @unique
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("cards")
+  @@schema("public")
 }
