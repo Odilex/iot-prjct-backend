@@ -180,22 +180,27 @@ async function startServer() {
     // Create HTTP server
     const httpServer = createServer(app);
 
-    // Initialize WebSocket server
-    console.log('[Server] Initializing WebSocket server...');
-    webSocketService.initialize(httpServer);
-    console.log('[Server] WebSocket server initialized');
+    // Initialize WebSocket and MQTT only if NOT on Vercel
+    if (!process.env.VERCEL) {
+      // Initialize WebSocket server
+      console.log('[Server] Initializing WebSocket server...');
+      webSocketService.initialize(httpServer);
+      console.log('[Server] WebSocket server initialized');
 
-    // Initialize MQTT handler (non-fatal if broker is down)
-    console.log('[Server] Initializing MQTT handler...');
-    const mqttHandler = getMQTTHandler();
-    try {
-      await mqttHandler.connect();
-      console.log('[Server] MQTT handler connected');
-    } catch (mqttError) {
-      console.error(
-        '[Server] MQTT broker is not reachable. Continuing without MQTT. Error:',
-        mqttError
-      );
+      // Initialize MQTT handler (non-fatal if broker is down)
+      console.log('[Server] Initializing MQTT handler...');
+      const mqttHandler = getMQTTHandler();
+      try {
+        await mqttHandler.connect();
+        console.log('[Server] MQTT handler connected');
+      } catch (mqttError) {
+        console.error(
+          '[Server] MQTT broker is not reachable. Continuing without MQTT. Error:',
+          mqttError
+        );
+      }
+    } else {
+      console.log('[Server] Vercel environment: Skipping WebSocket and MQTT persistent handlers.');
     }
 
     // Start HTTP server (Express + WebSocket)
@@ -222,24 +227,28 @@ async function startServer() {
       console.log('[Server] Vercel environment detected. Server is ready but not listening on a manual port.');
     }
 
-    // Graceful shutdown
-    process.on('SIGTERM', async () => {
-      console.log('[Server] SIGTERM received, shutting down gracefully...');
-      await mqttHandler.disconnect();
-      httpServer.close(() => {
-        console.log('[Server] HTTP server closed');
-        process.exit(0);
+    // Graceful shutdown (only needed for persistent sessions)
+    if (!process.env.VERCEL) {
+      process.on('SIGTERM', async () => {
+        console.log('[Server] SIGTERM received, shutting down gracefully...');
+        const mqttHandler = getMQTTHandler();
+        await mqttHandler.disconnect();
+        httpServer.close(() => {
+          console.log('[Server] HTTP server closed');
+          process.exit(0);
+        });
       });
-    });
 
-    process.on('SIGINT', async () => {
-      console.log('[Server] SIGINT received, shutting down gracefully...');
-      await mqttHandler.disconnect();
-      httpServer.close(() => {
-        console.log('[Server] HTTP server closed');
-        process.exit(0);
+      process.on('SIGINT', async () => {
+        console.log('[Server] SIGINT received, shutting down gracefully...');
+        const mqttHandler = getMQTTHandler();
+        await mqttHandler.disconnect();
+        httpServer.close(() => {
+          console.log('[Server] HTTP server closed');
+          process.exit(0);
+        });
       });
-    });
+    }
 
   } catch (error) {
     console.error('[Server] Failed to start server:', error);
