@@ -264,8 +264,12 @@ const updateStudentSchema = z.object({
   walletBalance: z.number().min(0).optional(),
 });
 
-router.post('/students', validateBody(createStudentSchema), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/students', (req: AuthenticatedRequest, res: Response, next) => {
+  console.log(`[Admin] Received create student request:`, JSON.stringify(req.body));
+  next();
+}, validateBody(createStudentSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    console.log(`[Admin] Validation passed. Creating student: ${req.body.full_name}`);
     const student = await prisma.student.create({
       data: {
         admissionNumber: req.body.admissionNumber,
@@ -276,6 +280,7 @@ router.post('/students', validateBody(createStudentSchema), async (req: Authenti
       },
     });
 
+    console.log(`[Admin] Student created successfully with ID: ${student.id}`);
     res.status(201).json({
       success: true,
       student: {
@@ -289,6 +294,7 @@ router.post('/students', validateBody(createStudentSchema), async (req: Authenti
     });
   } catch (error: any) {
     if (error.code === 'P2002') {
+      console.warn(`[Admin] Conflict: Student with unique field already exists`);
       res.status(409).json({ error: 'Conflict', message: 'Student with this admission number or card UID already exists' });
     } else {
       console.error('[Admin] Error creating student:', error);
@@ -540,7 +546,7 @@ router.delete('/staff/:id', validateParams(z.object({ id: z.string().uuid() })),
 // ============================================
 
 const createParentSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().uuid().optional(),
   full_name: z.string().min(1),
   phone_number: z.string().optional(),
   email: z.string().email().optional(),

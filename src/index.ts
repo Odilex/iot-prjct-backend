@@ -9,6 +9,9 @@ import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+
+console.log('>>> SERVER SOURCE STARTING - VERSION 2.0.1 <<<');
+console.log('>>> TIME:', new Date().toISOString());
 import { getMQTTHandler } from './mqtt/mqtt-handler';
 import { webSocketService } from './services/websocket';
 import { getLocalIPs } from './utils/network';
@@ -26,6 +29,7 @@ import attendanceRoutes from './routes/attendance';
 import feeRoutes from './routes/fees';
 import announcementRoutes from './routes/announcements';
 import statsRoutes from './routes/stats';
+import iotRoutes from './routes/iot';
 
 // ============================================
 // SERVER CONFIGURATION
@@ -65,13 +69,18 @@ app.use('/api', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware (development only)
-if (NODE_ENV === 'development') {
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    next();
-  });
-}
+// Global logging middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const fs = require('fs');
+  const now = new Date().toISOString();
+  const logMsg = `[${now}] ${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}\n`;
+  fs.appendFileSync('server_debug.log', logMsg);
+
+  if (NODE_ENV === 'development') {
+    console.log(`[${now}] ${req.method} ${req.path}`);
+  }
+  next();
+});
 
 // ============================================
 // HEALTH CHECK ENDPOINT
@@ -104,6 +113,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/fees', feeRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/iot', iotRoutes);
 
 // Base API info
 app.get('/api', (req, res) => {
@@ -120,6 +130,7 @@ app.get('/api', (req, res) => {
       fees: '/api/fees',
       announcements: '/api/announcements',
       stats: '/api/stats',
+      iot: '/api/iot',
       legacy: {
         admin: '/api/admin',
         parent: '/api/parent',

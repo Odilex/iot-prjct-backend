@@ -103,4 +103,25 @@ router.patch('/:id/toggle-publish', validateParams(z.object({ id: z.string().uui
     }
 });
 
+/**
+ * GET /api/announcements/:id
+ */
+router.get('/:id', validateParams(z.object({ id: z.string().uuid() })), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const announcement = await prisma.announcement.findUnique({
+            where: { id: req.params.id },
+        });
+
+        if (!announcement) {
+            res.status(404).json({ error: 'Announcement not found' });
+            return;
+        }
+
+        res.json(announcement);
+    } catch (error) {
+        console.error('[Announcements] Fetch by id error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 export default router;

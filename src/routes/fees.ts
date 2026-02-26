@@ -21,13 +21,20 @@ const feeSchema = z.object({
 
 /**
  * GET /api/fees
+ * Supports ?studentId=...
  */
-router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     try {
+        const { studentId } = req.query;
+        const where: any = {};
+        if (studentId) where.studentId = studentId;
+
         const fees = await prisma.fee.findMany({
+            where,
             include: { student: { select: { full_name: true } } },
             orderBy: { createdAt: 'desc' },
         });
+
 
         const formatted = fees.map(f => ({
             ...f,
@@ -157,6 +164,43 @@ router.post('/:id/payments', validateParams(z.object({ id: z.string().uuid() }))
         });
     } catch (error) {
         console.error('[Fees] Payment error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/fees/payments
+ */
+router.get('/payments', async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+        const fees = await (prisma.fee as any).findMany({
+            where: {
+                NOT: {
+                    payments: { equals: Prisma.AnyNull }
+                }
+            },
+            include: { student: { select: { full_name: true } } }
+        });
+
+        const allPayments: any[] = [];
+        fees.forEach((f: any) => {
+            const payments = (f.payments as any[]) || [];
+            payments.forEach(p => {
+                allPayments.push({
+                    ...p,
+                    studentId: f.studentId,
+                    studentName: f.student?.full_name || 'Unknown Student',
+                    feeId: f.id,
+                });
+            });
+        });
+
+        // Sort by date desc
+        allPayments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        res.json(allPayments);
+    } catch (error) {
+        console.error('[Fees] Payments history error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

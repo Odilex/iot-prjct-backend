@@ -1,11 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
-  previewFeatures = ["partialIndexes"]
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes", "multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  schemas  = ["public", "auth"]
 }
 
 model Student {
@@ -31,7 +31,7 @@ model Student {
   cards             Cards[]
 
   @@map("students")
-  
+  @@schema("public")
 }
 
 model Parent {
@@ -47,7 +47,7 @@ model Parent {
   parentStudentMaps ParentStudentMap[]
 
   @@map("parents")
-  
+  @@schema("public")
 }
 
 model Staff {
@@ -67,7 +67,7 @@ model Staff {
   assignments       Assignment[]
 
   @@map("staff")
-  
+  @@schema("public")
 }
 
 model ParentStudentMap {
@@ -79,7 +79,7 @@ model ParentStudentMap {
 
   @@id([parentId, studentId])
   @@map("parent_student_map")
-  
+  @@schema("public")
 }
 
 model Attendance {
@@ -91,7 +91,7 @@ model Attendance {
   student   Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@map("attendance")
-  
+  @@schema("public")
 }
 
 model FeeTransaction {
@@ -104,12 +104,12 @@ model FeeTransaction {
   student     Student?  @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("fee_transactions")
-  
+  @@schema("public")
 }
 
 model Mark {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  studentId String   @db.Uuid
+  studentId String   @map("student_id") @db.Uuid
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   grade     String // e.g., "Grade 10"
   term      String // e.g., "Term 1"
@@ -118,10 +118,10 @@ model Mark {
   science   Float    @default(0)
   history   Float    @default(0)
   average   Float    @default(0)
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("marks")
-  
+  @@schema("public")
 }
 
 model Announcement {
@@ -130,18 +130,18 @@ model Announcement {
   content        String
   priority       String   @default("low") // low, medium, high
   category       String   @default("general")
-  targetAudience String   @default("all") // all, students, parents, teachers
+  targetAudience String   @default("all") @map("target_audience") // all, students, parents, teachers
   published      Boolean  @default(false)
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("announcements")
-  
+  @@schema("public")
 }
 
 model Fee {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  studentId String   @db.Uuid
+  studentId String   @map("student_id") @db.Uuid
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   class     String
   term      String
@@ -150,6 +150,12 @@ model Fee {
   balance   Decimal  @db.Decimal(10, 2)
   status    String   @default("pending") // pending, partial, paid
   payments  Json? // Array of { date, amount, method, receiptNo }
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("fees")
+  @@schema("public")
+}
 
 model Assignment {
   id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
@@ -163,7 +169,7 @@ model Assignment {
   teacher     Staff?    @relation(fields: [teacherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("assignments")
-  
+  @@schema("public")
 }
 
 model Appointment {
@@ -178,7 +184,17 @@ model Appointment {
   teacher      Staff?    @relation(fields: [teacherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("appointments")
-  
+  @@schema("public")
+}
+
+model Cards {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  identifier String   @unique
+  studentId  String?  @unique @map("student_id") @db.Uuid
+  student    Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("cards")
+  @@schema("public")
 }
 
 enum StaffRole {
@@ -186,7 +202,7 @@ enum StaffRole {
   TEACHER
   ACCOUNTANT
 
-  
+  @@schema("public")
 }
 
 enum DevicePurpose {
@@ -194,28 +210,28 @@ enum DevicePurpose {
   CANTEEN
   CLEARANCE
 
-  
+  @@schema("public")
 }
 
 enum TransactionType {
   CREDIT
   DEBIT
 
-  
+  @@schema("public")
 }
 
 enum CheckType {
   IN
   OUT
 
-  
+  @@schema("public")
 }
 
 enum AttendanceStatus {
   ON_TIME
   LATE
 
-  
+  @@schema("public")
 }
 
 enum DeviceStatus {
@@ -223,7 +239,7 @@ enum DeviceStatus {
   OFFLINE
   MAINTENANCE
 
-  
+  @@schema("public")
 }
 
 enum GradeType {
@@ -233,15 +249,5 @@ enum GradeType {
   PROJECT
   PARTICIPATION
 
-  
+  @@schema("public")
 }
-
-model Cards {
-  id        String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  studentId String  @unique @map("student_id") @db.Uuid
-  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  @@map("cards")
-  
-}
-

@@ -9,17 +9,27 @@ router.use(authenticateJWT);
 
 /**
  * GET /api/attendance
+ * Supports ?studentId=...
  */
-router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        // Get all students
+        const { studentId } = req.query;
+
+        // Get students
+        const studentWhere: any = {};
+        if (studentId) studentWhere.id = studentId;
+
         const students = await prisma.student.findMany({
+            where: studentWhere,
             select: { id: true, full_name: true, grade_level: true }
         });
 
         // Get all attendance events
+        const attendanceWhere: any = { checkType: 'IN' };
+        if (studentId) attendanceWhere.studentId = studentId;
+
         const events = await prisma.attendance.findMany({
-            where: { checkType: 'IN' }
+            where: attendanceWhere
         });
 
         // Group by date
@@ -48,6 +58,7 @@ router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
 
 /**
  * POST /api/attendance
@@ -84,6 +95,32 @@ router.post('/', validateBody(z.object({
         res.json({ message: 'Attendance recorded successfully' });
     } catch (error) {
         console.error('[Attendance] Record error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/attendance/term/:term
+ */
+router.get('/term/:term', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { term } = req.params;
+        const events = await prisma.attendance.findMany({
+            where: { term, checkType: 'IN' },
+            include: { student: { select: { full_name: true, grade_level: true } } }
+        });
+
+        const formatted = events.map(e => ({
+            studentId: e.studentId,
+            studentName: e.student?.full_name,
+            class: e.student?.grade_level,
+            date: e.createdAt?.toISOString().split('T')[0],
+            present: true,
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('[Attendance] Fetch by term error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

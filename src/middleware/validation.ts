@@ -11,11 +11,13 @@ export function validateBody(schema: ZodSchema) {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
+        console.warn(`[Validation] Body validation failed for ${req.method} ${req.path}:`, JSON.stringify(error.errors));
         res.status(400).json({
           error: 'Validation error',
           details: error.errors,
         });
       } else {
+        console.error(`[Validation] Unexpected error for ${req.method} ${req.path}:`, error);
         res.status(500).json({ error: 'Validation error' });
       }
     }

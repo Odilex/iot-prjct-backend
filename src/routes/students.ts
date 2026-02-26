@@ -77,9 +77,13 @@ router.get('/:id', validateParams(z.object({ id: z.string().uuid() })), async (r
 /**
  * POST /api/students
  */
-router.post('/', validateBody(studentSchema), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', (req: AuthenticatedRequest, res: Response, next) => {
+    console.log(`[Students] Received create request:`, JSON.stringify(req.body));
+    next();
+}, validateBody(studentSchema), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const data = req.body;
+        console.log(`[Students] Validation passed. Creating student...`);
 
         // Admission number is required in schema, if not provided we generate one
         const admissionNumber = data.admissionNumber || `ADM-${Date.now()}`;
@@ -99,7 +103,10 @@ router.post('/', validateBody(studentSchema), async (req: AuthenticatedRequest, 
             },
         });
 
+        console.log(`[Students] Student created successfully with ID: ${student.id}`);
+
         if (data.parentId) {
+            console.log(`[Students] Linking to parent: ${data.parentId}`);
             await prisma.parentStudentMap.create({
                 data: {
                     studentId: student.id,
@@ -116,7 +123,7 @@ router.post('/', validateBody(studentSchema), async (req: AuthenticatedRequest, 
         });
     } catch (error) {
         console.error('[Students] Create error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Internal server error', message: error instanceof Error ? error.message : 'Unknown error' });
     }
 });
 

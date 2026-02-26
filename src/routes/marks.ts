@@ -9,11 +9,16 @@ router.use(authenticateJWT);
 
 /**
  * GET /api/marks
- * Response: { "Grade 10": { "Term 1": [...rows], "Term 2": [...rows] }, ... }
+ * Supports ?studentId=...
  */
-router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     try {
+        const { studentId } = req.query;
+        const where: any = {};
+        if (studentId) where.studentId = studentId;
+
         const marks = await prisma.mark.findMany({
+            where,
             include: { student: { select: { full_name: true } } },
         });
 
@@ -40,6 +45,7 @@ router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
 
 /**
  * PUT /api/marks
@@ -86,5 +92,34 @@ router.put('/', validateBody(z.object({
     }
 });
 
+
+/**
+ * GET /api/marks/term/:term
+ */
+router.get('/term/:term', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { term } = req.params;
+        const marks = await prisma.mark.findMany({
+            where: { term },
+            include: { student: { select: { full_name: true } } },
+        });
+
+        const formatted = marks.map(m => ({
+            studentId: m.studentId,
+            studentName: m.student.full_name,
+            math: m.math,
+            english: m.english,
+            science: m.science,
+            history: m.history,
+            average: m.average,
+            grade: m.grade,
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('[Marks] Fetch by term error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 export default router;

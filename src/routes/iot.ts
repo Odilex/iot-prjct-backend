@@ -1,0 +1,241 @@
+import { Router, Request, Response } from "express";
+import prisma from "../config/database";
+
+const iot = Router();
+
+// Receive card id (Initial registration)
+interface BodyPayload {
+    card: string;
+}
+
+/**
+ * @route POST /api/iot/card
+ * @desc Register a new physical card UID/Identifier in the system
+ */
+iot.post("/card", async (req: Request, res: Response) => {
+    try {
+        const { card } = req.body as BodyPayload;
+
+        if (!card) {
+            return res.status(400).json({ message: "Card identifier is required" });
+        }
+
+        const existing = await prisma.cards.findUnique({
+            where: { identifier: card },
+        });
+
+        if (existing) {
+            return res
+                .status(409)
+                .json({ message: "Card already exists", data: existing });
+        }
+
+        // Now works since studentId is optional in schema
+        const data = await prisma.cards.create({
+            data: { identifier: card }
+        });
+
+        return res
+            .status(201)
+            .json({ message: "New card registered successfully", data });
+    } catch (error) {
+        console.error("Error registering card:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+/**
+ * @route GET /api/iot/card
+ * @desc List all registered cards
+ */
+iot.get("/card", async (req: Request, res: Response) => {
+    try {
+        const cards = await prisma.cards.findMany({
+            include: {
+                student: {
+                    select: {
+                        id: true,
+                        full_name: true,
+                        admissionNumber: true,
+                    }
+                }
+            }
+        });
+        res.json(cards);
+    } catch (error) {
+        console.error("Error fetching cards:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+/**
+ * @route PATCH /api/iot/card/:identifier/assign
+ * @desc Assign a registered card to a student
+ */
+iot.patch(
+    "/card/:identifier/assign",
+    async (req: Request, res: Response) => {
+        try {
+            const { identifier } = req.params;
+            const { studentId } = req.body;
+
+            // Validate input
+            if (!studentId) {
+                return res.status(400).json({
+                    message: "studentId is required",
+                });
+            }
+
+            // Check if student exists
+            const student = await prisma.student.findUnique({
+                where: { id: studentId },
+            });
+
+            if (!student) {
+                return res.status(404).json({
+                    message: "Student not found",
+                });
+            }
+
+            // Check if card exists
+            const card = await prisma.cards.findUnique({
+                where: { identifier },
+            });
+
+            if (!card) {
+                return res.status(404).json({
+                    message: "Card not found",
+                });
+            }
+
+            // Check if card is already assigned to another student
+            if (card.studentId && card.studentId !== studentId) {
+                return res.status(409).json({
+                    message: "Card is already assigned to another student",
+                });
+            }
+
+            // Assign card to student
+            const updatedCard = await prisma.cards.update({
+                where: { identifier },
+                data: { studentId }, // prisma field name
+                include: {
+                    student: {
+                        select: {
+                            id: true,
+                            full_name: true,
+                            admissionNumber: true,
+                            grade_level: true,
+                        },
+                    },
+                },
+            });
+
+            return res.json({
+                message: "Card assigned successfully",
+                data: updatedCard,
+            });
+        } catch (error) {
+            console.error("Error assigning card:", error);
+            return res.status(500).json({
+                message: "Internal server error",
+            });
+        }
+    },
+);
+
+/**
+ * @route POST /api/iot/student/register
+ * @desc Register a new student and optionally assign a card in one transaction
+ */
+iot.post(
+    "/student/register",
+    async (req: Request, res: Response) => {
+        try {
+            const {
+                admission_number,
+                full_name,
+                grade_level,
+                card_identifier, // optional
+            } = req.body;
+
+            // Validate required fields
+            if (!admission_number || !full_name || !grade_level) {
+                return res.status(400).json({
+                    message: "admission_number, full_name, and grade_level are required",
+                });
+            }
+
+            // Check if student with same admission number already exists
+            const existingStudent = await prisma.student.findUnique({
+                where: { admissionNumber: admission_number },
+            });
+
+            if (existingStudent) {
+                return res.status(409).json({
+                    message: "Student with this admission number already exists",
+                });
+            }
+
+            // If card identifier is provided, check if it exists and is not assigned
+            if (card_identifier) {
+                const card = await prisma.cards.findUnique({
+                    where: { identifier: card_identifier },
+                });
+
+                if (!card) {
+                    return res.status(404).json({
+                        message: "Card not found. Please register the card first.",
+                    });
+                }
+
+                if (card.studentId) {
+                    return res.status(409).json({
+                        message: "Card is already assigned to another student",
+                    });
+                }
+            }
+
+            // Create student and optionally assign card in a transaction
+            const result = await prisma.$transaction(async (tx) => {
+                // Create the student
+                const newStudent = await tx.student.create({
+                    data: {
+                        admissionNumber: admission_number,
+                        full_name,
+                        grade_level,
+                        walletBalance: 0.0, // initialize with zero balance
+                    },
+                });
+
+                // If card identifier provided, assign it to the student
+                if (card_identifier) {
+                    await tx.cards.update({
+                        where: { identifier: card_identifier },
+                        data: { studentId: newStudent.id },
+                    });
+                }
+
+                // Return student with card info if applicable
+                return tx.student.findUnique({
+                    where: { id: newStudent.id },
+                    include: {
+                        cards: true
+                    },
+                });
+            });
+
+            return res.status(201).json({
+                message: "Student registered successfully",
+                data: result,
+            });
+        } catch (error) {
+            console.error("Error registering student:", error);
+            return res.status(500).json({
+                message: "Internal server error",
+            });
+        }
+    },
+);
+
+export default iot;
