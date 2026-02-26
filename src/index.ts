@@ -71,12 +71,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Global logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const fs = require('fs');
   const now = new Date().toISOString();
-  const logMsg = `[${now}] ${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}\n`;
-  fs.appendFileSync('server_debug.log', logMsg);
 
-  if (NODE_ENV === 'development') {
+  // Disable filesystem logging on Vercel/Production
+  if (!process.env.VERCEL && NODE_ENV === 'development') {
+    try {
+      const fs = require('fs');
+      const logMsg = `[${now}] ${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}\n`;
+      fs.appendFileSync('server_debug.log', logMsg);
+    } catch (e) {
+      // Ignore fs errors in environments where it's not available
+    }
+  }
+
+  if (NODE_ENV === 'development' || process.env.VERCEL) {
     console.log(`[${now}] ${req.method} ${req.path}`);
   }
   next();
@@ -191,23 +199,28 @@ async function startServer() {
     }
 
     // Start HTTP server (Express + WebSocket)
-    httpServer.listen(PORT, () => {
-      const localIPs = getLocalIPs();
-      console.log(`[Server] 🚀 Smart Campus Hub backend running on port ${PORT}`);
-      console.log(`[Server] Environment: ${NODE_ENV}`);
+    // On Vercel, we don't call .listen() manually; Vercel handles the server lifecycle.
+    if (!process.env.VERCEL) {
+      httpServer.listen(PORT, () => {
+        const localIPs = getLocalIPs();
+        console.log(`[Server] 🚀 Smart Campus Hub backend running on port ${PORT}`);
+        console.log(`[Server] Environment: ${NODE_ENV}`);
 
-      console.log(`[Server] Local Access: http://localhost:${PORT}/api`);
-      if (localIPs.length > 0) {
-        console.log(`[Server] Network Access (for other PCs/IoT):`);
-        localIPs.forEach(ip => {
-          console.log(`         - http://${ip}:${PORT}/api`);
-          console.log(`         - mqtt://${ip}:1883 (if broker is shared)`);
-        });
-      }
+        console.log(`[Server] Local Access: http://localhost:${PORT}/api`);
+        if (localIPs.length > 0) {
+          console.log(`[Server] Network Access (for other PCs/IoT):`);
+          localIPs.forEach(ip => {
+            console.log(`         - http://${ip}:${PORT}/api`);
+            console.log(`         - mqtt://${ip}:1883 (if broker is shared)`);
+          });
+        }
 
-      console.log(`[Server] Health check: http://localhost:${PORT}/health`);
-      console.log(`[Server] WebSocket: ws://localhost:${PORT}`);
-    });
+        console.log(`[Server] Health check: http://localhost:${PORT}/health`);
+        console.log(`[Server] WebSocket: ws://localhost:${PORT}`);
+      });
+    } else {
+      console.log('[Server] Vercel environment detected. Server is ready but not listening on a manual port.');
+    }
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {
