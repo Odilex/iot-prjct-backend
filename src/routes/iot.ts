@@ -129,11 +129,6 @@ iot.patch(
                     data: { cardUid: identifier }
                 });
 
-                // update card status
-                await tx.cards.update({
-                    where: { identifier },
-                    data: { studentId:  }
-                });
 
                 return updatedCard;
             });
