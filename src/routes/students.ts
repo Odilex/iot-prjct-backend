@@ -18,7 +18,8 @@ const studentSchema = z.object({
     gender: z.string().optional(),
     address: z.string().optional(),
     status: z.string().optional().default('active'),
-    admissionNumber: z.string().min(1).optional(), // Not in requested body but needed for existing schema
+    admissionNumber: z.string().min(1).optional(),
+    cardUid: z.string().optional(),
 });
 
 /**
@@ -88,19 +89,33 @@ router.post('/', (req: AuthenticatedRequest, res: Response, next) => {
         // Admission number is required in schema, if not provided we generate one
         const admissionNumber = data.admissionNumber || `ADM-${Date.now()}`;
 
-        const student = await prisma.student.create({
-            data: {
-                admissionNumber,
-                full_name: data.name,
-                grade_level: data.class,
-                stream: data.stream,
-                phone: data.phone,
-                email: data.email,
-                dob: data.dob,
-                gender: data.gender,
-                address: data.address,
-                status: data.status,
-            },
+        const student = await prisma.$transaction(async (tx) => {
+            const newStudent = await tx.student.create({
+                data: {
+                    admissionNumber,
+                    full_name: data.name,
+                    grade_level: data.class,
+                    stream: data.stream,
+                    phone: data.phone,
+                    email: data.email,
+                    dob: data.dob,
+                    gender: data.gender,
+                    address: data.address,
+                    status: data.status,
+                    cardUid: data.cardUid,
+                },
+            });
+
+            // If cardUid provided, ensure it exists in Cards table and is linked
+            if (data.cardUid) {
+                await tx.cards.upsert({
+                    where: { identifier: data.cardUid },
+                    update: { studentId: newStudent.id },
+                    create: { identifier: data.cardUid, studentId: newStudent.id }
+                });
+            }
+
+            return newStudent;
         });
 
         console.log(`[Students] Student created successfully with ID: ${student.id}`);
@@ -133,19 +148,48 @@ router.post('/', (req: AuthenticatedRequest, res: Response, next) => {
 router.put('/:id', validateParams(z.object({ id: z.string().uuid() })), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const data = req.body;
-        const student = await prisma.student.update({
-            where: { id: req.params.id },
-            data: {
-                full_name: data.name,
-                grade_level: data.class,
-                stream: data.stream,
-                phone: data.phone,
-                email: data.email,
-                dob: data.dob,
-                gender: data.gender,
-                address: data.address,
-                status: data.status,
-            },
+        const cardUid = data.cardUid || data.card_uid;
+
+        const student = await prisma.$transaction(async (tx) => {
+            const updatedStudent = await tx.student.update({
+                where: { id: req.params.id },
+                data: {
+                    full_name: data.name,
+                    grade_level: data.class,
+                    stream: data.stream,
+                    phone: data.phone,
+                    email: data.email,
+                    dob: data.dob,
+                    gender: data.gender,
+                    address: data.address,
+                    status: data.status,
+                    cardUid: cardUid,
+                },
+            });
+
+            // If cardUid is being updated/set
+            if (cardUid) {
+                // 1. Unlink any other card that might have been assigned to this student
+                await tx.cards.updateMany({
+                    where: { studentId: updatedStudent.id, NOT: { identifier: cardUid } },
+                    data: { studentId: null }
+                });
+
+                // 2. Link the new card
+                await tx.cards.upsert({
+                    where: { identifier: cardUid },
+                    update: { studentId: updatedStudent.id },
+                    create: { identifier: cardUid, studentId: updatedStudent.id }
+                });
+            } else if (cardUid === null || cardUid === '') {
+                // If explicitly clearing the card
+                await tx.cards.updateMany({
+                    where: { studentId: updatedStudent.id },
+                    data: { studentId: null }
+                });
+            }
+
+            return updatedStudent;
         });
 
         res.json({

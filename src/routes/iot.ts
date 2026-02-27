@@ -115,10 +115,32 @@ iot.patch(
                 });
             }
 
-            // Assign card to student
-            const updatedCard = await prisma.cards.update({
+            // Assign card to student - Update BOTH tables to keep them in sync
+            const result = await prisma.$transaction(async (tx) => {
+                // 1. Update the Card record
+                const updatedCard = await tx.cards.update({
+                    where: { identifier },
+                    data: { studentId: student.id },
+                });
+
+                // 2. Update the Student record's card_uid
+                await tx.student.update({
+                    where: { id: studentId },
+                    data: { cardUid: identifier }
+                });
+
+                // update card status
+                await tx.cards.update({
+                    where: { identifier },
+                    data: { studentId:  }
+                });
+
+                return updatedCard;
+            });
+
+            // Re-fetch to include relation for response
+            const finalCard = await prisma.cards.findUnique({
                 where: { identifier },
-                data: { studentId }, // prisma field name
                 include: {
                     student: {
                         select: {
@@ -133,7 +155,7 @@ iot.patch(
 
             return res.json({
                 message: "Card assigned successfully",
-                data: updatedCard,
+                data: finalCard,
             });
         } catch (error) {
             console.error("Error assigning card:", error);
@@ -208,11 +230,17 @@ iot.post(
                     },
                 });
 
-                // If card identifier provided, assign it to the student
+                // If card identifier provided, assign it to the student in BOTH tables
                 if (card_identifier) {
                     await tx.cards.update({
                         where: { identifier: card_identifier },
                         data: { studentId: newStudent.id },
+                    });
+
+                    // ALSO update the student record's card_uid
+                    await tx.student.update({
+                        where: { id: newStudent.id },
+                        data: { cardUid: card_identifier }
                     });
                 }
 
