@@ -36,10 +36,21 @@ iot.post("/card", async (req: Request, res: Response) => {
 
                 if (claimingStudent) {
                     console.log(`[IoT] Self-healing link: Card ${card} -> Student ${claimingStudent.id}`);
-                    existing = await prisma.cards.update({
-                        where: { identifier: card },
-                        data: { studentId: claimingStudent.id },
-                        include: { student: true }
+
+                    // Link in a transaction to be safe and clear any other assignments
+                    existing = await prisma.$transaction(async (tx) => {
+                        // 1. Unlink any OTHER card that might be pointing to this student
+                        await tx.cards.updateMany({
+                            where: { studentId: claimingStudent.id, NOT: { identifier: card } },
+                            data: { studentId: null }
+                        });
+
+                        // 2. Link this card
+                        return await tx.cards.update({
+                            where: { identifier: card },
+                            data: { studentId: claimingStudent.id },
+                            include: { student: true }
+                        });
                     });
                 }
             }
