@@ -29,6 +29,7 @@ router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
     try {
         const students = await prisma.student.findMany({
             orderBy: { createdAt: 'desc' },
+            include: { cards: true }
         });
 
         // Map to frontend expectation
@@ -55,7 +56,8 @@ router.get('/:id', validateParams(z.object({ id: z.string().uuid() })), async (r
             include: {
                 parentStudentMaps: {
                     include: { parent: true }
-                }
+                },
+                cards: true
             }
         });
 
