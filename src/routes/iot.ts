@@ -20,15 +20,32 @@ iot.post("/card", async (req: Request, res: Response) => {
             return res.status(400).json({ message: "Card identifier is required" });
         }
 
-        const existing = await prisma.cards.findUnique({
+        let existing = await prisma.cards.findUnique({
             where: { identifier: card },
             include: { student: true }
         });
 
         // IF CARD EXISTS
         if (existing) {
+            // SELF-HEAL CHECK: If card exists in inventory but studentId is null,
+            // check if there's a student record claiming this cardUid.
+            if (!existing.studentId) {
+                const claimingStudent = await prisma.student.findUnique({
+                    where: { cardUid: card }
+                });
+
+                if (claimingStudent) {
+                    console.log(`[IoT] Self-healing link: Card ${card} -> Student ${claimingStudent.id}`);
+                    existing = await prisma.cards.update({
+                        where: { identifier: card },
+                        data: { studentId: claimingStudent.id },
+                        include: { student: true }
+                    });
+                }
+            }
+
             // IF CARD IS ASSIGNED TO A STUDENT -> Record Attendance
-            if (existing.studentId && existing.student) {
+            if (existing && existing.studentId && existing.student) {
                 const now = new Date();
 
                 // 1. Determine IN or OUT (Toggle based on last record)
@@ -56,7 +73,7 @@ iot.post("/card", async (req: Request, res: Response) => {
                         student_name: existing.student.full_name,
                         check_type: checkType,
                         timestamp: attendance.createdAt,
-                        wallet_balance: existing.student.walletBalance
+                        wallet_balance: Number(existing.student.walletBalance || 0)
                     }
                 });
             }
