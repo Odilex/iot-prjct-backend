@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { authenticateJWT, AuthenticatedRequest } from '../middleware/auth';
 
 import prisma from '../config/database';
+import { safeLogToFile } from '../utils/logger';
 
 const router = Router();
 
@@ -12,9 +13,8 @@ const router = Router();
 router.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, phone, password } = req.body;
-        const fs = require('fs');
         const logMsg = `[${new Date().toISOString()}] Login attempt: Email=${email}, Phone=${phone}, Body=${JSON.stringify(req.body)}\n`;
-        fs.appendFileSync('login_debug.log', logMsg);
+        safeLogToFile('login_debug.log', logMsg);
         console.log('[Auth] Full request body:', JSON.stringify(req.body));
 
         if ((!email && !phone) || !password) {
@@ -85,104 +85,106 @@ router.post('/login', async (req: Request, res: Response) => {
  */
 router.post('/parent/login', async (req: Request, res: Response) => {
     try {
-        const { phone, password } = req.body;
+        let { email, phone, phoneNumber, password } = req.body;
+        // Support both field names for compatibility
+        if (!phone && phoneNumber) phone = phoneNumber;
 
         // Log to file as well
-        const fs = require('fs');
-        const logMsg = `[${new Date().toISOString()}] Parent Login attempt: Phone=${phone}, Body=${JSON.stringify(req.body)}\n`;
-        fs.appendFileSync('login_debug.log', logMsg);
+        const attemptMsg = `[${new Date().toISOString()}] Parent Login attempt: Email=${email}, Phone=${phone}, Body=${JSON.stringify(req.body)}\n`;
+        safeLogToFile('login_debug.log', attemptMsg);
 
-        console.log(`[Auth] Parent login attempt for phone: ${phone}`);
+        console.log(`[Auth] Parent login attempt for: ${email || phone}`);
 
-        if (!phone || !password) {
-            console.log('[Auth] Parent login failed: Missing phone or password');
-            res.status(400).json({ error: 'Phone and password are required' });
+        if ((!email && !phone) || !password) {
+            console.log('[Auth] Parent login failed: Missing credentials');
+            res.status(400).json({ error: 'Email/Phone and password are required' });
             return;
         }
 
-        // Normalize phone for Supabase
-        // We will try both with and without the '+' prefix because some accounts 
-        // in this project seem to have been created without it (e.g., 250... instead of +250...)
-        let primaryPhone = phone;
-        let secondaryPhone = '';
-
-        if (phone.startsWith('+')) {
-            primaryPhone = phone;
-            secondaryPhone = phone.substring(1); // e.g. +250... -> 250...
-        } else if (phone.startsWith('0')) {
-            primaryPhone = `+250${phone.substring(1)}`;
-            secondaryPhone = `250${phone.substring(1)}`;
-        } else if (phone.startsWith('250')) {
-            primaryPhone = `+${phone}`;
-            secondaryPhone = phone;
-        }
-
-        console.log(`[Auth] Normalized phones: primary=${primaryPhone}, secondary=${secondaryPhone}`);
-
-        // 1. Check if ANY version of the phone exists in parents table
-        const localPhone = phone.startsWith('+250') ? '0' + phone.substring(4) : (phone.startsWith('250') ? '0' + phone.substring(3) : phone);
-        console.log(`[Auth] Searching for parent with: ${phone} OR ${localPhone} OR ${primaryPhone} OR ${secondaryPhone}`);
-
-        const parentRecord = await prisma.parent.findFirst({
+        // 1. Find parent record first
+        let parentRecord = await prisma.parent.findFirst({
             where: {
                 OR: [
-                    { phone_number: phone },
-                    { phone_number: localPhone },
-                    { phone_number: primaryPhone },
-                    { phone_number: secondaryPhone }
+                    { email: email || '___never_match___' },
+                    { phone_number: phone || '___never_match___' }
                 ]
             }
         });
 
+        // Special case: if phone was provided, try normalized versions
+        if (!parentRecord && phone) {
+            const primaryPhone = phone.startsWith('+') ? phone : (phone.startsWith('0') ? `+250${phone.substring(1)}` : `+${phone}`);
+            const secondaryPhone = phone.startsWith('+') ? phone.substring(1) : (phone.startsWith('0') ? `250${phone.substring(1)}` : phone);
+            const localPhone = phone.startsWith('0') ? phone : (phone.startsWith('+250') ? '0' + phone.substring(4) : (phone.startsWith('250') ? '0' + phone.substring(3) : phone));
+
+            console.log(`[Auth] Retrying parent search with normalized phones: ${primaryPhone}, ${secondaryPhone}, ${localPhone}`);
+
+            parentRecord = await prisma.parent.findFirst({
+                where: {
+                    OR: [
+                        { phone_number: phone },
+                        { phone_number: primaryPhone },
+                        { phone_number: secondaryPhone },
+                        { phone_number: localPhone }
+                    ]
+                }
+            });
+        }
 
         if (!parentRecord) {
-            console.log(`[Auth] Parent record not found for phone: ${phone}`);
-            res.status(403).json({ error: 'Forbidden', message: 'Phone number not registered in school records' });
+            console.log(`[Auth] Parent record not found for: ${email || phone}`);
+            safeLogToFile('login_debug.log', `[${new Date().toISOString()}] Parent record NOT FOUND for: ${email || phone}\n`);
+            res.status(403).json({ error: 'Forbidden', message: 'User not registered as a parent in school records' });
             return;
         }
 
         console.log(`[Auth] Found parent record: ${parentRecord.full_name}, ID: ${parentRecord.id}, UserId: ${parentRecord.userId}`);
+        safeLogToFile('login_debug.log', `[${new Date().toISOString()}] Found parent: ${parentRecord.full_name}, UserId: ${parentRecord.userId}\n`);
 
-        // 2. Authenticate or Sign Up with Supabase
-        let authResponse;
+        // 2. Authenticate with Supabase
+        const loginPayload: any = { password };
+        if (email) loginPayload.email = email;
+        else {
+            // Use normalized phone if available, else use raw
+            const nPhone = phone?.startsWith('0') ? `+250${phone.substring(1)}` : (phone?.startsWith('250') ? `+${phone}` : phone);
+            loginPayload.phone = nPhone;
+        }
 
-        if (!parentRecord.userId) {
-            console.log(`[Auth] Auto-registering parent with Supabase: ${primaryPhone}`);
-            authResponse = await supabase.auth.signUp({
-                phone: primaryPhone,
-                password: password,
-            });
+        console.log(`[Auth] Attempting Supabase login for parent: ${email || loginPayload.phone}`);
+        let authResponse: any = await supabase.auth.signInWithPassword(loginPayload);
 
-            if (authResponse.error && (authResponse.error.message.includes('already registered') || authResponse.error.status === 400)) {
-                console.log(`[Auth] Parent already registered or signUp failed, trying sign in with ${primaryPhone}`);
-                authResponse = await supabase.auth.signInWithPassword({
-                    phone: primaryPhone,
+        // If first attempt fails and it was phone, try without the '+' or with original
+        if (authResponse.error && loginPayload.phone) {
+            const alternatePhone = loginPayload.phone.startsWith('+') ? loginPayload.phone.substring(1) : `+${loginPayload.phone}`;
+            console.log(`[Auth] Sign in failed, retrying with alternate phone: ${alternatePhone}`);
+            authResponse = await supabase.auth.signInWithPassword({ phone: alternatePhone, password });
+        }
+
+        // 3. Fallback: If login fails but parent exists, try to signUp (auto-creation)
+        if (authResponse.error && (authResponse.error.status === 400 || authResponse.error.message.includes('Invalid login') || authResponse.error.message.includes('OTP'))) {
+            if (!parentRecord.userId) {
+                console.log(`[Auth] Login failed or OTP required, but parent exists. Attempting auto-signUp with EMAIL to bypass SMS...`);
+
+                // We use the email from the DB record even if they typed their phone
+                // because Supabase phone auth often requires SMS setup (Twilio)
+                const supabaseEmail = parentRecord.email || `parent_${parentRecord.id}@school.com`;
+
+                console.log(`[Auth] Registering ${parentRecord.full_name} with Supabase Email: ${supabaseEmail}`);
+
+                authResponse = await supabase.auth.signUp({
+                    email: supabaseEmail,
                     password: password
                 });
 
-                // If primary fails, try secondary
-                if (authResponse.error && secondaryPhone) {
-                    console.log(`[Auth] Sign in failed with ${primaryPhone}, trying ${secondaryPhone}`);
-                    authResponse = await supabase.auth.signInWithPassword({
-                        phone: secondaryPhone,
-                        password: password
+                if (authResponse.error) {
+                    console.error(`[Auth] Auto-signUp failed: ${authResponse.error.message}`);
+                } else if (authResponse.data?.user) {
+                    console.log(`[Auth] Successfully registered parent in Supabase. Linking userId...`);
+                    await prisma.parent.update({
+                        where: { id: parentRecord.id },
+                        data: { userId: authResponse.data.user.id }
                     });
                 }
-            }
-        } else {
-            console.log(`[Auth] Parent already has userId, attempting sign in with Supabase: ${primaryPhone}`);
-            authResponse = await supabase.auth.signInWithPassword({
-                phone: primaryPhone,
-                password: password
-            });
-
-            // If primary fails, try secondary (sometimes accounts are created without the + prefix)
-            if (authResponse.error && secondaryPhone) {
-                console.log(`[Auth] Sign in failed with ${primaryPhone}, trying ${secondaryPhone} instead...`);
-                authResponse = await supabase.auth.signInWithPassword({
-                    phone: secondaryPhone,
-                    password: password
-                });
             }
         }
 
@@ -190,6 +192,7 @@ router.post('/parent/login', async (req: Request, res: Response) => {
 
         if (error) {
             console.error(`[Auth] Parent Supabase error: ${error.message} (Status: ${error.status})`);
+            safeLogToFile('login_debug.log', `[${new Date().toISOString()}] Parent Supabase ERROR: ${error.message} (Status: ${error.status})\n`);
             res.status(error.status || 401).json({ error: 'Authentication failed', message: error.message });
             return;
         }

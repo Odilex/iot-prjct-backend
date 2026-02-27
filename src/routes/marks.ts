@@ -46,6 +46,26 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     }
 });
 
+/**
+ * GET /api/marks/:studentId
+ * Get raw marks for a specific student
+ */
+router.get('/:studentId', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { studentId } = req.params;
+        const marks = await prisma.mark.findMany({
+            where: { studentId },
+            include: { student: { select: { full_name: true } } },
+            orderBy: { grade: 'desc' }
+        });
+
+        res.json(marks);
+    } catch (error) {
+        console.error('[Marks] Fetch by studentId error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 /**
  * PUT /api/marks

@@ -59,6 +59,26 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     }
 });
 
+/**
+ * GET /api/attendance/:studentId
+ * Get raw attendance events for a specific student
+ */
+router.get('/:studentId', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { studentId } = req.params;
+        const attendance = await prisma.attendance.findMany({
+            where: { studentId },
+            orderBy: { createdAt: 'desc' },
+            take: 100
+        });
+
+        res.json(attendance);
+    } catch (error) {
+        console.error('[Attendance] Fetch by studentId error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 /**
  * POST /api/attendance

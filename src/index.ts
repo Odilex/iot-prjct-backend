@@ -15,6 +15,7 @@ console.log('>>> TIME:', new Date().toISOString());
 import { getMQTTHandler } from './mqtt/mqtt-handler';
 import { webSocketService } from './services/websocket';
 import { getLocalIPs } from './utils/network';
+import { safeLogToFile } from './utils/logger';
 
 // Import routes
 import adminRoutes from './routes/admin';
@@ -46,9 +47,27 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
+// CORS configuration - handles dynamic origins (like ngrok) with credentials
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', process.env.CORS_ORIGIN].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', process.env.CORS_ORIGIN].filter(Boolean) as string[],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+
+    // If CORS_ORIGIN is '*' in .env, we allow any origin dynamically
+    // This trick is necessary because credentials: true doesn't work with a literal '*'
+    if (process.env.CORS_ORIGIN === '*') {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`[CORS] Rejected origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
@@ -72,17 +91,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Global logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   const now = new Date().toISOString();
+  const logMsg = `[${now}] ${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}\n`;
 
-  // Disable filesystem logging on Vercel/Production
-  if (!process.env.VERCEL && NODE_ENV === 'development') {
-    try {
-      const fs = require('fs');
-      const logMsg = `[${now}] ${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}\n`;
-      fs.appendFileSync('server_debug.log', logMsg);
-    } catch (e) {
-      // Ignore fs errors in environments where it's not available
-    }
-  }
+  // Use safe logger that handles Vercel/Read-only environments
+  safeLogToFile('server_debug.log', logMsg);
 
   if (NODE_ENV === 'development' || process.env.VERCEL) {
     console.log(`[${now}] ${req.method} ${req.path}`);
@@ -122,6 +134,11 @@ app.use('/api/fees', feeRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/iot', iotRoutes);
+
+// Compatibility aliases for frontend
+app.use('/api/student/attendance', attendanceRoutes);
+app.use('/api/student/marks', markRoutes);
+app.use('/api/student', studentRoutes); // Alias for singular 'student' requests
 
 // Base API info
 app.get('/api', (req, res) => {
