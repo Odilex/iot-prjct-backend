@@ -22,24 +22,65 @@ iot.post("/card", async (req: Request, res: Response) => {
 
         const existing = await prisma.cards.findUnique({
             where: { identifier: card },
+            include: { student: true }
         });
 
+        // IF CARD EXISTS
         if (existing) {
-            return res
-                .status(409)
-                .json({ message: "Card already exists", data: existing });
+            // IF CARD IS ASSIGNED TO A STUDENT -> Record Attendance
+            if (existing.studentId && existing.student) {
+                const now = new Date();
+
+                // 1. Determine IN or OUT (Toggle based on last record)
+                const lastAttendance = await prisma.attendance.findFirst({
+                    where: { studentId: existing.studentId },
+                    orderBy: { createdAt: 'desc' },
+                });
+
+                const checkType = lastAttendance?.checkType === 'IN' ? 'OUT' : 'IN';
+
+                // 2. Create Attendance Record
+                const attendance = await prisma.attendance.create({
+                    data: {
+                        studentId: existing.studentId,
+                        checkType: checkType,
+                        deviceId: (req.body as any).device_id || 'HTTP-READER',
+                        term: 'Term 1' // Default term
+                    }
+                });
+
+                return res.status(200).json({
+                    message: `Attendance recorded: ${checkType}`,
+                    success: true,
+                    data: {
+                        student_name: existing.student.full_name,
+                        check_type: checkType,
+                        timestamp: attendance.createdAt,
+                        wallet_balance: existing.student.walletBalance
+                    }
+                });
+            }
+
+            // IF CARD EXISTS BUT NO STUDENT -> Inform dashboard it's ready for assignment
+            return res.status(200).json({
+                message: "Card recognized, but not assigned to any student",
+                success: false,
+                data: existing
+            });
         }
 
-        // Now works since studentId is optional in schema
+        // IF CARD IS NEW -> Register the card in inventory
         const data = await prisma.cards.create({
             data: { identifier: card }
         });
 
-        return res
-            .status(201)
-            .json({ message: "New card registered successfully", data });
+        return res.status(201).json({
+            message: "New card registered successfully in system",
+            success: true,
+            data
+        });
     } catch (error) {
-        console.error("Error registering card:", error);
+        console.error("Error processing card scan:", error);
         return res.status(500).json({ message: "Internal server error" });
     }
 });
