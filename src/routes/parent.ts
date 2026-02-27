@@ -280,4 +280,43 @@ router.get('/appointments',
   }
 );
 
+/**
+ * GET /parent/marks/:studentId
+ * Get academic marks for a student (ownership verified)
+ */
+router.get('/marks/:studentId',
+  validateParams(studentParamSchema),
+  verifyParentOwnership,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { studentId } = req.params;
+
+      const marks = await prisma.mark.findMany({
+        where: { studentId },
+        orderBy: [{ grade: 'desc' }, { term: 'asc' }],
+      });
+
+      res.json({
+        success: true,
+        student_id: studentId,
+        count: marks.length,
+        marks: marks.map(m => ({
+          id: m.id,
+          grade: m.grade,
+          term: m.term,
+          math: m.math,
+          english: m.english,
+          science: m.science,
+          history: m.history,
+          average: m.average,
+          created_at: m.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error('[Parent] Error fetching marks:', error);
+      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch marks' });
+    }
+  }
+);
+
 export default router;
