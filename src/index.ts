@@ -31,6 +31,7 @@ import feeRoutes from './routes/fees';
 import announcementRoutes from './routes/announcements';
 import statsRoutes from './routes/stats';
 import iotRoutes from './routes/iot';
+import parentStudentMapRoutes from './routes/parentStudentMap';
 
 // ============================================
 // SERVER CONFIGURATION
@@ -39,6 +40,9 @@ import iotRoutes from './routes/iot';
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Required for express-rate-limit to work correctly on Vercel/proxies
+app.set('trust proxy', 1);
 
 // ============================================
 // MIDDLEWARE SETUP
@@ -80,6 +84,7 @@ const limiter = rateLimit({
   message: 'Too many requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 });
 
 app.use('/api', limiter);
@@ -134,6 +139,7 @@ app.use('/api/fees', feeRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/iot', iotRoutes);
+app.use('/api/parentstudentmap', parentStudentMapRoutes);
 
 // Compatibility aliases for frontend
 app.use('/api/student/attendance', attendanceRoutes);
