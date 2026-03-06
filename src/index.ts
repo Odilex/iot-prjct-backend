@@ -280,6 +280,23 @@ async function startServer() {
 }
 
 // Start the server
-startServer();
+if (!process.env.VERCEL) {
+  startServer().then(() => {
+    console.log('>>> SERVER READY - RUNNING LOCALLY <<<');
+  }).catch(err => {
+    console.error('>>> SERVER FAILED TO START:', err);
+    process.exit(1);
+  });
+} else {
+  // On Vercel, we still want to run initialization logic that is safe for serverless
+  // but we don't call httpServer.listen() inside startServer() for Vercel.
+  console.log('>>> SERVER INITIALIZING FOR VERCEL <<<');
+  startServer().then(() => {
+    console.log('>>> SERVER READY - VERCEL CLOUD <<<');
+  }).catch(err => {
+    // On Vercel, we log the error but try to continue to let Vercel handle the crash or provide a better 500
+    console.error('>>> VERCEL INITIALIZATION ERROR:', err);
+  });
+}
 
 export default app;
