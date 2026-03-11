@@ -50,7 +50,7 @@ router.get('/summary', async (_req: AuthenticatedRequest, res: Response) => {
 
         const academicAverage = Math.round(avgResult._avg.score || 85);
 
-        res.json({
+        return res.json({
             totalStudents,
             activeStudents,
             totalTeachers,
@@ -62,7 +62,7 @@ router.get('/summary', async (_req: AuthenticatedRequest, res: Response) => {
         });
     } catch (error) {
         console.error('[Stats] Fetch error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 

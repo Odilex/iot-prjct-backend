@@ -22,10 +22,10 @@ router.get('/subjects', async (req: AuthenticatedRequest, res: Response) => {
             }
         });
 
-        res.json(subjects);
+        return res.json(subjects);
     } catch (error) {
         console.error('[Marks] Fetch subjects error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -84,10 +84,10 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             });
         });
 
-        res.json(result);
+        return res.json(result);
     } catch (error) {
         console.error('[Marks] Fetch error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -103,10 +103,10 @@ router.get('/:studentId', async (req: AuthenticatedRequest, res: Response) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        res.json(marks);
+        return res.json(marks);
     } catch (error) {
         console.error('[Marks] Fetch by studentId error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -141,10 +141,10 @@ router.post('/dynamic', async (req: AuthenticatedRequest, res: Response) => {
             }))
         );
 
-        res.json({ message: 'Marks saved successfully', count: createdMarks.length });
+        return res.json({ message: 'Marks saved successfully', count: createdMarks.length });
     } catch (error) {
         console.error('[Marks] Save error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 

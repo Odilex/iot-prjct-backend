@@ -286,7 +286,7 @@ router.post('/student/login', async (req: Request, res: Response) => {
 
         console.log(`[Auth] Student login attempt: ${admissionNumber} -> ${supabaseEmail}`);
 
-        let authResponse = await supabase.auth.signInWithPassword({
+        let authResponse: any = await supabase.auth.signInWithPassword({
             email: supabaseEmail,
             password
         });
@@ -323,7 +323,7 @@ router.post('/student/login', async (req: Request, res: Response) => {
             });
         }
 
-        res.json({
+        return res.json({
             token: data.session?.access_token,
             user: {
                 id: data.user?.id,
@@ -335,7 +335,7 @@ router.post('/student/login', async (req: Request, res: Response) => {
 
     } catch (error) {
         console.error('[Auth] Student login error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 

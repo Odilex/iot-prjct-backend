@@ -50,7 +50,7 @@ router.get('/students', async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       count: parentStudentMaps.length,
       students: parentStudentMaps.map(psm => ({
@@ -66,7 +66,7 @@ router.get('/students', async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (error) {
     console.error('[Parent] Error fetching students:', error);
-    res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch students' });
+    return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch students' });
   }
 });
 
@@ -112,7 +112,7 @@ router.get('/attendance/:studentId',
         take: limit,
       });
 
-      res.json({
+      return res.json({
         success: true,
         student_id: studentId,
         count: attendance.length,
@@ -125,7 +125,7 @@ router.get('/attendance/:studentId',
       });
     } catch (error) {
       console.error('[Parent] Error fetching attendance:', error);
-      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch attendance' });
+      return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch attendance' });
     }
   }
 );
@@ -158,7 +158,7 @@ router.get('/financial/:studentId',
         return;
       }
 
-      res.json({
+      return res.json({
         success: true,
         student: {
           id: student.id,
@@ -176,7 +176,7 @@ router.get('/financial/:studentId',
       });
     } catch (error) {
       console.error('[Parent] Error fetching financial data:', error);
-      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch financial data' });
+      return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch financial data' });
     }
   }
 );
@@ -213,7 +213,7 @@ router.get('/assignments/:studentId',
         orderBy: { dueDate: 'asc' },
       });
 
-      res.json({
+      return res.json({
         success: true,
         student_id: studentId,
         grade_level: student.grade_level,
@@ -232,7 +232,7 @@ router.get('/assignments/:studentId',
       });
     } catch (error) {
       console.error('[Parent] Error fetching assignments:', error);
-      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch assignments' });
+      return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch assignments' });
     }
   }
 );
@@ -260,7 +260,7 @@ router.get('/appointments',
         orderBy: { scheduledAt: 'asc' },
       });
 
-      res.json({
+      return res.json({
         success: true,
         count: appointments.length,
         appointments: appointments.map(a => ({
@@ -275,7 +275,7 @@ router.get('/appointments',
       });
     } catch (error) {
       console.error('[Parent] Error fetching appointments:', error);
-      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch appointments' });
+      return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch appointments' });
     }
   }
 );
@@ -291,30 +291,35 @@ router.get('/marks/:studentId',
     try {
       const { studentId } = req.params;
 
-      const marks = await prisma.mark.findMany({
+      const marks = await prisma.studentMark.findMany({
         where: { studentId },
-        orderBy: [{ grade: 'desc' }, { term: 'asc' }],
+        include: { subject: true },
+        orderBy: [{ term: 'asc' }, { createdAt: 'desc' }],
       });
 
-      res.json({
+      // Group marks by term
+      const groupedMarks: any = {};
+      marks.forEach(m => {
+        if (!groupedMarks[m.term]) groupedMarks[m.term] = [];
+        groupedMarks[m.term].push({
+          id: m.id,
+          subject: m.subject.name,
+          score: m.score,
+          maxScore: m.maxScore,
+          type: m.type,
+          created_at: m.createdAt
+        });
+      });
+
+      return res.json({
         success: true,
         student_id: studentId,
         count: marks.length,
-        marks: marks.map(m => ({
-          id: m.id,
-          grade: m.grade,
-          term: m.term,
-          math: m.math,
-          english: m.english,
-          science: m.science,
-          history: m.history,
-          average: m.average,
-          created_at: m.createdAt,
-        })),
+        marks: groupedMarks
       });
     } catch (error) {
       console.error('[Parent] Error fetching marks:', error);
-      res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch marks' });
+      return res.status(500).json({ error: 'Internal server error', message: 'Failed to fetch marks' });
     }
   }
 );
