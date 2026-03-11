@@ -8,8 +8,30 @@ const router = Router();
 router.use(authenticateJWT);
 
 /**
+ * GET /api/marks/subjects
+ * Get available subjects for a specific grade/stream
+ */
+router.get('/subjects', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { grade, stream } = req.query;
+
+        const subjects = await prisma.subject.findMany({
+            where: {
+                gradeLevel: grade as string || undefined,
+                stream: stream as string || undefined
+            }
+        });
+
+        res.json(subjects);
+    } catch (error) {
+        console.error('[Marks] Fetch subjects error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * GET /api/marks
- * Supports ?studentId=...
+ * Returns grouped marks.
  */
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -17,25 +39,48 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
         const where: any = {};
         if (studentId) where.studentId = studentId;
 
-        const marks = await prisma.mark.findMany({
+        const marks = await prisma.studentMark.findMany({
             where,
-            include: { student: { select: { full_name: true } } },
+            include: {
+                student: { select: { full_name: true } },
+                subject: true
+            },
+            orderBy: { createdAt: 'desc' }
         });
 
         const result: any = {};
 
+        // Group newMarks by student, grade, and term
+        const grouped: any = {};
         marks.forEach(m => {
-            if (!result[m.grade]) result[m.grade] = {};
-            if (!result[m.grade][m.term]) result[m.grade][m.term] = [];
+            const grade = m.subject.gradeLevel || 'Unknown';
+            const key = `${m.studentId}-${grade}-${m.term}`;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    studentId: m.studentId,
+                    studentName: m.student.full_name,
+                    grade,
+                    term: m.term,
+                    subjects: {},
+                    total: 0,
+                    count: 0
+                };
+            }
+            grouped[key].subjects[m.subject.name.toLowerCase()] = m.score;
+            grouped[key].total += m.score;
+            grouped[key].count += 1;
+        });
 
-            result[m.grade][m.term].push({
-                studentId: m.studentId,
-                studentName: m.student.full_name,
-                math: m.math,
-                english: m.english,
-                science: m.science,
-                history: m.history,
-                average: m.average,
+        // Merge grouped marks into result
+        Object.values(grouped).forEach((group: any) => {
+            if (!result[group.grade]) result[group.grade] = {};
+            if (!result[group.grade][group.term]) result[group.grade][group.term] = [];
+
+            result[group.grade][group.term].push({
+                studentId: group.studentId,
+                studentName: group.studentName,
+                ...group.subjects,
+                average: group.total / group.count
             });
         });
 
@@ -48,15 +93,14 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * GET /api/marks/:studentId
- * Get raw marks for a specific student
  */
 router.get('/:studentId', async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { studentId } = req.params;
-        const marks = await prisma.mark.findMany({
+        const marks = await prisma.studentMark.findMany({
             where: { studentId },
-            include: { student: { select: { full_name: true } } },
-            orderBy: { grade: 'desc' }
+            include: { subject: true },
+            orderBy: { createdAt: 'desc' }
         });
 
         res.json(marks);
@@ -66,78 +110,40 @@ router.get('/:studentId', async (req: AuthenticatedRequest, res: Response) => {
     }
 });
 
-
 /**
- * PUT /api/marks
+ * POST /api/marks/dynamic
+ * Save dynamic marks for multiple subjects
  */
-router.put('/', validateBody(z.object({
-    grade: z.string(),
-    term: z.string(),
-    rows: z.array(z.object({
-        studentId: z.string().uuid(),
-        studentName: z.string(),
-        math: z.number(),
-        english: z.number(),
-        science: z.number(),
-        history: z.number(),
-        average: z.number(),
-    })),
-})), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/dynamic', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { grade, term, rows } = req.body;
+        const { studentId, term, year, marks } = req.body; // marks: [{ subjectId, score, type }]
 
-        // delete existing for this grade/term and insert new
-        await prisma.$transaction([
-            prisma.mark.deleteMany({
-                where: { grade, term }
-            }),
-            prisma.mark.createMany({
-                data: rows.map((row: any) => ({
-                    studentId: row.studentId,
-                    grade,
+        if (!studentId || !term || !marks || !Array.isArray(marks)) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const createdMarks = await prisma.$transaction(
+            marks.map(m => prisma.studentMark.upsert({
+                where: {
+                    // We don't have a unique constraint on student-subject-term-year-type yet
+                    // but we can use id if provided, otherwise create
+                    id: m.id || '00000000-0000-0000-0000-000000000000'
+                },
+                update: { score: m.score, type: m.type || 'exam' },
+                create: {
+                    studentId,
+                    subjectId: m.subjectId,
+                    score: m.score,
                     term,
-                    math: row.math,
-                    english: row.english,
-                    science: row.science,
-                    history: row.history,
-                    average: row.average,
-                }))
-            })
-        ]);
+                    year: year || new Date().getFullYear().toString(),
+                    type: m.type || 'exam'
+                }
+            }))
+        );
 
-        res.json({ message: 'Marks updated successfully' });
+        res.json({ message: 'Marks saved successfully', count: createdMarks.length });
     } catch (error) {
-        console.error('[Marks] Update error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-
-/**
- * GET /api/marks/term/:term
- */
-router.get('/term/:term', async (req: AuthenticatedRequest, res: Response) => {
-    try {
-        const { term } = req.params;
-        const marks = await prisma.mark.findMany({
-            where: { term },
-            include: { student: { select: { full_name: true } } },
-        });
-
-        const formatted = marks.map(m => ({
-            studentId: m.studentId,
-            studentName: m.student.full_name,
-            math: m.math,
-            english: m.english,
-            science: m.science,
-            history: m.history,
-            average: m.average,
-            grade: m.grade,
-        }));
-
-        res.json(formatted);
-    } catch (error) {
-        console.error('[Marks] Fetch by term error:', error);
+        console.error('[Marks] Save error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

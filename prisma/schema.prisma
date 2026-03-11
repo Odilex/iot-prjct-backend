@@ -11,6 +11,7 @@ datasource db {
 
 model Student {
   id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId            String?            @unique @map("user_id") @db.Uuid
   admissionNumber   String             @unique @map("admission_number")
   full_name         String
   grade_level       String
@@ -27,7 +28,7 @@ model Student {
   attendance        Attendance[]
   feeTransactions   FeeTransaction[]
   parentStudentMaps ParentStudentMap[]
-  marks             Mark[]
+  studentMarks      StudentMark[]
   fees              Fee[]
   cards             Cards[]
 
@@ -109,20 +110,44 @@ model FeeTransaction {
   @@schema("public")
 }
 
-model Mark {
+model Subject {
+  id         String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String // e.g., "Mathematics", "Tourism Skills"
+  code       String? // e.g., "MATH101"
+  section    SchoolSection
+  gradeLevel String? // e.g., "P1", "S5", "Level 4"
+  stream     String? // e.g., "MPC", "Francophone"
+  marks      StudentMark[]
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("subjects")
+  @@schema("public")
+}
+
+model StudentMark {
   id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   studentId String   @map("student_id") @db.Uuid
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  grade     String // e.g., "Grade 10"
+  subjectId String   @map("subject_id") @db.Uuid
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  score     Float    @default(0)
+  maxScore  Float    @default(100)
   term      String // e.g., "Term 1"
-  math      Float    @default(0)
-  english   Float    @default(0)
-  science   Float    @default(0)
-  history   Float    @default(0)
-  average   Float    @default(0)
+  year      String // e.g., "2025"
+  type      String // e.g., "test", "exam"
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@map("marks")
+  @@map("student_marks")
+  @@schema("public")
+}
+
+enum SchoolSection {
+  NURSERY
+  PRIMARY
+  SECONDARY_O_LEVEL
+  SECONDARY_A_LEVEL
+  TVET
+
   @@schema("public")
 }
 

@@ -260,6 +260,85 @@ router.post('/dev-login', async (req: Request, res: Response) => {
 /**
  * POST /api/auth/logout
  */
+/**
+ * POST /api/auth/student/login
+ */
+router.post('/student/login', async (req: Request, res: Response) => {
+    try {
+        const { admissionNumber, password } = req.body;
+
+        if (!admissionNumber || !password) {
+            return res.status(400).json({ error: 'Admission number and password are required' });
+        }
+
+        // 1. Find student record
+        let studentRecord = await prisma.student.findFirst({
+            where: { admissionNumber }
+        });
+
+        if (!studentRecord) {
+            return res.status(403).json({ error: 'Forbidden', message: 'Admission number not found in school records' });
+        }
+
+        // 2. Authenticate with Supabase
+        // We use a generated email pattern for students: student_[admissionNumber]@school.com
+        const supabaseEmail = `student_${admissionNumber.replace(/[^a-zA-Z0-9]/g, '_')}@school.com`;
+
+        console.log(`[Auth] Student login attempt: ${admissionNumber} -> ${supabaseEmail}`);
+
+        let authResponse = await supabase.auth.signInWithPassword({
+            email: supabaseEmail,
+            password
+        });
+
+        // 3. Fallback: Auto-sign up if record exists but auth account doesn't
+        if (authResponse.error && (authResponse.error.status === 400 || authResponse.error.message.includes('Invalid login'))) {
+            if (!studentRecord.userId) {
+                console.log(`[Auth] Student exists but no Auth account. Creating one...`);
+                authResponse = await supabase.auth.signUp({
+                    email: supabaseEmail,
+                    password
+                });
+
+                if (!authResponse.error && authResponse.data.user) {
+                    studentRecord = await prisma.student.update({
+                        where: { id: studentRecord.id },
+                        data: { userId: authResponse.data.user.id }
+                    });
+                }
+            }
+        }
+
+        const { data, error } = authResponse;
+
+        if (error) {
+            return res.status(401).json({ error: 'Authentication failed', message: error.message });
+        }
+
+        // 4. Link userId if needed
+        if (!studentRecord.userId || studentRecord.userId !== data.user!.id) {
+            await prisma.student.update({
+                where: { id: studentRecord.id },
+                data: { userId: data.user!.id }
+            });
+        }
+
+        res.json({
+            token: data.session?.access_token,
+            user: {
+                id: data.user?.id,
+                admissionNumber: studentRecord.admissionNumber,
+                name: studentRecord.full_name,
+                role: 'student',
+            }
+        });
+
+    } catch (error) {
+        console.error('[Auth] Student login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 router.post('/logout', async (_req: Request, res: Response) => {
     try {
         const { error } = await supabase.auth.signOut();

@@ -43,10 +43,12 @@ router.get('/summary', async (_req: AuthenticatedRequest, res: Response) => {
             ? (studentsWithCheckInToday.length / totalStudents) * 100
             : 0;
 
-        // Academic average - from marks
-        const academicAvg = await prisma.mark.aggregate({
-            _avg: { average: true }
+        // Academic average - from dynamic marks
+        const avgResult = await prisma.studentMark.aggregate({
+            _avg: { score: true }
         });
+
+        const academicAverage = Math.round(avgResult._avg.score || 85);
 
         res.json({
             totalStudents,
@@ -56,7 +58,7 @@ router.get('/summary', async (_req: AuthenticatedRequest, res: Response) => {
             feesCollected: Number(feesCollected._sum.paid || 0),
             outstandingBalance: Number(outstandingBalance._sum.balance || 0),
             attendanceRate: Math.round(attendanceRate),
-            academicAverage: Math.round(academicAvg._avg.average || 85), // Defaulting to 85 if no marks
+            academicAverage,
         });
     } catch (error) {
         console.error('[Stats] Fetch error:', error);

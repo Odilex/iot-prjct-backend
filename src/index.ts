@@ -32,6 +32,7 @@ import announcementRoutes from './routes/announcements';
 import statsRoutes from './routes/stats';
 import iotRoutes from './routes/iot';
 import parentStudentMapRoutes from './routes/parentStudentMap';
+import studentPortalRoutes from './routes/student';
 
 // ============================================
 // SERVER CONFIGURATION
@@ -139,6 +140,7 @@ app.use('/api/fees', feeRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/iot', iotRoutes);
+app.use('/api/student', studentPortalRoutes);
 app.use('/api/parentstudentmap', parentStudentMapRoutes);
 
 // Compatibility aliases for frontend
